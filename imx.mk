@@ -13,6 +13,7 @@ OPTEE_OS_PLATFORM ?= imx-mx8mqevk
 U_BOOT_DEFCONFIG  ?= imx8mq_evk_defconfig
 U_BOOT_DT         ?= imx8mq-evk.dtb
 LINUX_DT          ?= imx8mq-evk.dtb
+MKIMAGE_DT        ?= fsl-imx8mq-evk.dtb
 MKIMAGE_SOC       ?= iMX8MQ
 
 BR2_TARGET_GENERIC_GETTY_PORT ?= ttymxc0
@@ -36,6 +37,9 @@ FIRMWARE_BIN_URL	?= https://www.nxp.com/lgfiles/NMG/MAD/YOCTO/$(FIRMWARE_BIN)
 
 BOOT_IMG		?= $(ROOT)/out/boot.img
 
+include imx8mp-evk.inc.mk
+#include imx8mp-verdin.inc.mk
+
 ################################################################################
 # Targets
 ################################################################################
@@ -53,7 +57,7 @@ TF_A_EXPORTS = CROSS_COMPILE="$(CCACHE)$(AARCH64_CROSS_COMPILE)"
 #	BL32_EXTRA1=$(OPTEE_OS_PAGER_V2_BIN) \
 #	BL32_EXTRA2=$(OPTEE_OS_PAGEABLE_V2_BIN) \
 
-TF_A_FLAGS  = PLAT=$(TFA_PLATFORM) SPD=opteed DEBUG_CONSOLE=1 DEBUG=0 V=1
+TF_A_FLAGS += PLAT=$(TFA_PLATFORM) SPD=opteed DEBUG_CONSOLE=1 DEBUG=0 V=1
 TF_A_FLAGS += BL32=$(OPTEE_OS_PATH)/out/arm/core/tee-raw.bin
 
 tfa: optee-os
@@ -81,9 +85,11 @@ u-boot-defconfig: $(UBOOT_PATH)/.config
 
 .PHONY: u-boot
 u-boot: u-boot-defconfig tfa ddr-firmware
+	# Copy DDR4 firmware
 	cp $(FIRMWARE_PATH)/$(FIRMWARE_VERSION)/firmware/ddr/synopsys/lpddr4_pmu_train_*.bin \
-		$(TF_A_PATH)/build/$(TFA_PLATFORM)/release/bl31.bin \
 		$(UBOOT_PATH)
+	# Copy BL31 binary from TF-A
+	cp $(TF_A_PATH)/build/$(TFA_PLATFORM)/*/bl31.bin $(UBOOT_PATH)
 	$(U-BOOT_EXPORTS) $(MAKE) -C $(UBOOT_PATH)
 
 .PHONY: u-boot-clean
@@ -154,14 +160,14 @@ ddr-firmware-clean:
 mkimage: u-boot
 	ln -sf $(OPTEE_OS_PATH)/out/arm/core/tee-raw.bin \
 		$(MKIMAGE_SOC_PATH)/tee.bin
-	ln -sf $(TF_A_PATH)/build/$(TFA_PLATFORM)/release/bl31.bin \
+	ln -sf $(TF_A_PATH)/build/$(TFA_PLATFORM)/*/bl31.bin \
 		$(MKIMAGE_SOC_PATH)/
 	ln -sf $(FIRMWARE_PATH)/$(FIRMWARE_VERSION)/firmware/ddr/synopsys/lpddr4_pmu_train_*.bin \
 		$(MKIMAGE_SOC_PATH)/
 	ln -sf $(UBOOT_PATH)/u-boot-nodtb.bin $(MKIMAGE_SOC_PATH)/
 	ln -sf $(UBOOT_PATH)/spl/u-boot-spl.bin $(MKIMAGE_SOC_PATH)/
 	ln -sf $(UBOOT_PATH)/arch/arm/dts/$(U_BOOT_DT) \
-		$(MKIMAGE_SOC_PATH)/fsl-$(U_BOOT_DT)
+		$(MKIMAGE_SOC_PATH)/$(MKIMAGE_DT)
 	ln -sf $(UBOOT_PATH)/tools/mkimage $(MKIMAGE_SOC_PATH)/mkimage_uboot
 	$(MAKE) -C $(MKIMAGE_PATH) SOC=$(MKIMAGE_SOC) flash_spl_uboot
 #> +If you want to run with HDMI, copy signed_hdmi_imx8m.bin to imx-mkimage/iMX8M
@@ -226,7 +232,7 @@ flash-image: buildroot mkimage linux
 flash-image-only: $(ROOT)/out-br/images/ramdisk.img $(ROOT)/out/boot.scr
 	rm -f $(BOOT_IMG)
 	truncate -s $(FLASH_IMAGE_SIZE) $(BOOT_IMG)
-	echo -ne $(FLASH_PARTITIONS_TABLE) | sfdisk $(BOOT_IMG)
+	echo -ne $(FLASH_PARTITIONS_TABLE) | sudo sfdisk $(BOOT_IMG)
 	mformat -i $(BOOT_IMG).fat -n 64 -h 255 -T 131072 -v "BOOT IMG" -C ::
 	mcopy -i $(BOOT_IMG).fat $(LINUX_PATH)/arch/arm64/boot/Image ::
 	mcopy -i $(BOOT_IMG).fat \
